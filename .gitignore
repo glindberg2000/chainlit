@@ -8,6 +8,8 @@ dist
 *.files
 
 poetry.lock
+testapi.py
+demo.py
 
 venv
 .venv
@@ -16,6 +18,7 @@ venv
 .chainlit
 !cypress/e2e/**/*/.chainlit/*
 chainlit.md
+chainlit/
 
 cypress/screenshots
 cypress/videos
