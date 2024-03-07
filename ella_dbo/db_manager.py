@@ -1,9 +1,14 @@
 # ella_dbo/db_manager.py
 
 import sqlite3
+import os
 
-# Define the database file path
-DB_FILE = './database.db'
+# Get the directory of the current file (__file__ is the path to the current script)
+current_dir = os.path.dirname(__file__)
+
+# Define the database file path as relative to the current directory
+DB_FILE = os.path.join(current_dir, 'database.db')
+
 
 def create_connection():
     """Create and return a database connection to the SQLite database specified by db_file."""
@@ -29,10 +34,34 @@ def create_table(conn):
     except sqlite3.Error as e:
         print(e)
 
+
 def upsert_user(conn, user_id, email, name, roles):
-    """Insert a new user or update an existing user in the users table."""
-    # Function implementation remains the same
-    ...
+    """
+    Insert a new user or update an existing user in the users table.
+    Adjusted to handle roles as a string.
+    """
+    cur = conn.cursor()
+    # Convert list of roles to a comma-separated string
+    roles_str = ", ".join(roles) if isinstance(roles, list) else roles
+
+    # Check if user already exists
+    cur.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    existing_user = cur.fetchone()
+
+    if existing_user:
+        # Update existing user
+        sql = '''UPDATE users 
+                 SET email=?, name=?, roles=?
+                 WHERE user_id=?'''
+        cur.execute(sql, (email, name, roles_str, user_id))
+    else:
+        # Insert new user
+        sql = '''INSERT INTO users(user_id, email, name, roles)
+                 VALUES(?,?,?,?)'''
+        cur.execute(sql, (user_id, email, name, roles_str))
+    
+    conn.commit()
+
 
 # You might want to include a function to close the database connection if needed
 def close_connection(conn):
@@ -66,30 +95,3 @@ def close_connection(conn):
 #     except sqlite3.Error as e:
 #         print(e)
 
-
-# def upsert_user(conn, user_id, email, name, roles):
-#     """
-#     Insert a new user or update an existing user in the users table.
-#     Adjusted to handle roles as a string.
-#     """
-#     cur = conn.cursor()
-#     # Convert list of roles to a comma-separated string
-#     roles_str = ", ".join(roles) if isinstance(roles, list) else roles
-
-#     # Check if user already exists
-#     cur.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-#     existing_user = cur.fetchone()
-
-#     if existing_user:
-#         # Update existing user
-#         sql = '''UPDATE users 
-#                  SET email=?, name=?, roles=?
-#                  WHERE user_id=?'''
-#         cur.execute(sql, (email, name, roles_str, user_id))
-#     else:
-#         # Insert new user
-#         sql = '''INSERT INTO users(user_id, email, name, roles)
-#                  VALUES(?,?,?,?)'''
-#         cur.execute(sql, (user_id, email, name, roles_str))
-    
-#     conn.commit()

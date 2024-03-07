@@ -8,29 +8,6 @@ import logging
 from ella_dbo.db_manager import create_connection, create_table, upsert_user
 
 
-# Example usage
-# db_file = './database.db'
-# conn = create_connection(db_file)
-
-# # Create table if not exists
-# create_table(conn)
-# Insert a new user
-# user_info = ('auth0|1234567', 'user2@example.com', 'John Doe', 'user')
-# upsert_user(conn, *user_info)
-
-#conn.close()
-
-
-# Example oAuth Callback
-# @cl.oauth_callback
-# def oauth_callback(
-#     provider_id: str,
-#     token: str,
-#     raw_user_data: Dict[str, str],
-#     default_user: cl.User,
-# ) -> Optional[cl.User]:
-#     return default_user
-
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -50,8 +27,6 @@ def oauth_callback(
     user_roles = raw_user_data.get("https://ella-ai/auth/roles", ["user"])  # Default role
 
     # Construct the cl.User object with identifier and metadata
-    # This example assumes that the cl.User class can accept and store additional metadata
-    # If cl.User does not support this directly, you may need to explore alternative approaches
     custom_user = cl.User(identifier=user_name, metadata={
         "user_id": unique_id,
         "email": user_email,
@@ -61,7 +36,6 @@ def oauth_callback(
 
     conn = create_connection()
     create_table(conn)
-    # Upsert user
     #dummy_info = ('auth0|1234567', 'user3@example.com', 'Pepe the Frog', 'superuser')
     roles_str = ", ".join(user_roles)  # Convert list of roles to a string
     custom_info = (unique_id,user_email,user_name,roles_str)
