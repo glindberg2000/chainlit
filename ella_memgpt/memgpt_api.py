@@ -25,7 +25,7 @@ class MemGPTAPI:
         else:
             return None
 
-    # This version does not work because the docs are wrong.
+    # The get api key does not work. 
     #
     # def get_user_api_key(self, user_id):
     #     """Retrieve the API key for a specific user."""
@@ -41,8 +41,8 @@ class MemGPTAPI:
     #     else:
     #         return None
         
-    # This version is undocumented but works:
-    def get_user_api_key(self, user_id):
+    # Create a new Api key works:
+    def create_user_api_key(self, user_id):
         """Retrieve the API key for a specific user."""
         url = f"{self.base_url}/admin/users/keys"
         headers = {
@@ -63,10 +63,11 @@ class MemGPTAPI:
             # Handle non-200 responses or add more specific error handling as needed
 
 
-    def create_user(self, user_id):
+    def create_user(self):
         """Create a new user in the memGPT API."""
         url = f"{self.base_url}/admin/users"
-        payload = {"user_id": user_id}
+        #payload = {"user_id": user_id}
+        payload = {}
         headers = {
             "accept": "application/json",
             "content-type": "application/json",
@@ -81,7 +82,7 @@ class MemGPTAPI:
 # Example usage
 if __name__ == "__main__":
     api = MemGPTAPI()
-    user_id = '34a54893-8b6b-47f8-b73d-d32052ef1ced'
+    user_id = 'mycustomuser'
     
     users = api.get_users()
     if users and any(user['user_id'] == user_id for user in users.get('user_list', [])):

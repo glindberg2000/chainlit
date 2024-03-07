@@ -5,14 +5,14 @@ import chainlit as cl
 import logging
 
 # Import the database management functions from db_manager module
-from ella_dbo.db_manager import create_connection, create_table, upsert_user
+from ella_dbo.db_manager import create_connection, create_table, upsert_user, get_memgpt_user_id
+from ella_memgpt.memgpt_api import MemGPTAPI
 
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# *** oAuth working ***
 @cl.oauth_callback
 def oauth_callback(
     provider_id: str,
@@ -20,15 +20,13 @@ def oauth_callback(
     raw_user_data: Dict[str, Any],
     default_user: cl.User,
 ) -> Optional[cl.User]:
-    # Extract necessary information from raw_user_data
-    unique_id = raw_user_data.get("sub", "Unknown ID")
-    user_email = raw_user_data.get("email", "Unknown Email")
-    user_name = raw_user_data.get("name", "Unknown Name")
-    user_roles = raw_user_data.get("https://ella-ai/auth/roles", ["user"])  # Default role
+    auth0_user_id = raw_user_data.get("sub", "Unknown ID")
+    user_email = raw_user_data.get("email", None)
+    user_name = raw_user_data.get("name", None)
+    user_roles = raw_user_data.get("https://ella-ai/auth/roles", ["none"])  # Assign 'none' as a default role
 
-    # Construct the cl.User object with identifier and metadata
     custom_user = cl.User(identifier=user_name, metadata={
-        "user_id": unique_id,
+        "auth0_user_id": auth0_user_id,
         "email": user_email,
         "name": user_name,
         "roles": user_roles
@@ -36,24 +34,36 @@ def oauth_callback(
 
     conn = create_connection()
     create_table(conn)
-    #dummy_info = ('auth0|1234567', 'user3@example.com', 'Pepe the Frog', 'superuser')
-    roles_str = ", ".join(user_roles)  # Convert list of roles to a string
-    custom_info = (unique_id,user_email,user_name,roles_str)
-    #print(dummy_info)
-    print(custom_info)
-    upsert_user(conn, *custom_info)
+    roles_str = ", ".join(user_roles)
+    upsert_user(conn, auth0_user_id=auth0_user_id, roles=roles_str, email=user_email, name=user_name)
     conn.close()
 
     return custom_user
 
-# # ***Base Working *** #
+def handle_memgpt_login(auth0_user_id):
+    conn = create_connection()
+    memgpt_user_id = get_memgpt_user_id(conn, auth0_user_id)
+    api = MemGPTAPI()
+
+    if not memgpt_user_id:
+        memgpt_user = api.create_user()  # Adjust based on actual API response structure
+        memgpt_user_id = memgpt_user.get("user_id")
+        memgpt_user_api_key = memgpt_user.get("api_key")
+        upsert_user(conn, auth0_user_id, memgpt_user_id=memgpt_user_id)  # Assuming upsert_user is adjusted to handle memgpt_user_id
+    else:
+        memgpt_user_api_key=api.create_user_api_key(memgpt_user_id)
+    conn.close()
+
+    # Now, memgpt_user_id is either fetched or newly created, and you can proceed with your app's logic
+
+# # ***Base Working Example *** #
 # @cl.on_chat_start
 # async def on_chat_start():
 #     # This function is called at the beginning of the chat session
 #     # You can perform any initialization here if necessary
 #     print("Chat session started!")
 
-# *** 0Auth working version ***
+# *** 0Auth version ***
 @cl.on_chat_start
 async def on_chat_start():
     # Retrieve the cl.User object, assuming it's stored in the session or accessible via a similar mechanism
@@ -61,12 +71,12 @@ async def on_chat_start():
     
     # Access user details from the metadata attribute of the cl.User object
     # This step assumes that 'metadata' or a similar mechanism is actually supported and correctly populated
+    auth0_user_id = app_user.metadata.get("auth0_user_id", "Unknown ID")
     user_email = app_user.metadata.get("email", "Unknown Email")
-    user_id = app_user.metadata.get("user_id", "Unknown ID")
     user_name = app_user.metadata.get("name", "Unknown Name")
     #user_roles_str = ", ".join(app_user.metadata.get("roles", ["user"]))
     user_roles = app_user.metadata.get("roles", ["user"])
-    #unique_id = app_user.identifier  # This was set as 'name' in the callback
+    #auth0_user_id = app_user.identifier  # This was set as 'name' in the callback
 
     # For simplicity, checking if 'admin' is in user_roles
     if 'admin' in user_roles:
@@ -75,10 +85,23 @@ async def on_chat_start():
         await cl.display_dashboard()  # Placeholder for actual dashboard display method
         return  # Prevent further execution to avoid going to the chat automatically
         
+    #Get MemGPT user_id and api_key
+    conn = create_connection()
+    memgpt_user_id = get_memgpt_user_id(conn, auth0_user_id)
+    api = MemGPTAPI()
+
+    if not memgpt_user_id:
+        memgpt_user = api.create_user()  # Adjust based on actual API response structure
+        memgpt_user_id = memgpt_user.get("user_id")
+        memgpt_user_api_key = memgpt_user.get("api_key")
+        upsert_user(conn, auth0_user_id, memgpt_user_id=memgpt_user_id)  # Assuming upsert_user is adjusted to handle memgpt_user_id
+    else:
+        memgpt_user_api_key=api.create_user_api_key(memgpt_user_id)
+    conn.close()
 
 
     # Construct and send a personalized message using the user's details
-    custom_message = f"Hello {user_name} ({user_id}), your email is {user_email}, and your roles are: {user_roles}."
+    custom_message = f"Hello {user_name} ({auth0_user_id}), your email is {user_email}, and your roles are: {user_roles}. Your MemGPT id is {memgpt_user_id} and your memgpt api key is {memgpt_user_api_key}"
     await cl.Message(custom_message).send()
 
 
