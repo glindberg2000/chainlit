@@ -3,7 +3,7 @@ import os
 import sys
 from importlib import util
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 import tomli
 from chainlit.logger import logger
@@ -50,7 +50,7 @@ session_timeout = 3600
 # Enable third parties caching (e.g LangChain cache)
 cache = false
 
-# Authorized origins 
+# Authorized origins
 allow_origins = ["*"]
 
 # Follow symlink for asset mount (see https://github.com/Chainlit/chainlit/issues/317)
@@ -67,7 +67,11 @@ unsafe_allow_html = false
 latex = false
 
 # Authorize users to upload files with messages
-multi_modal = true
+[features.multi_modal]
+    enabled = true
+    accept = ["*/*"]
+    max_files = 20
+    max_size_mb = 500
 
 # Allows user to use speech to text
 [features.speech_to_text]
@@ -107,6 +111,11 @@ hide_cot = false
 
 # Specify a custom font url.
 # custom_font = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
+
+# Specify a custom build directory for the frontend. 
+# This can be used to customize the frontend code.
+# Be careful: If this is a relative path, it should not start with a slash.
+# custom_build = "./public/build"
 
 # Override default MUI light theme. (Check theme.ts)
 [UI.theme]
@@ -180,10 +189,18 @@ class SpeechToTextFeature:
     language: Optional[str] = None
 
 
+@dataclass
+class MultiModalFeature:
+    enabled: Optional[bool] = None
+    accept: Optional[Union[List[str], Dict[str, List[str]]]] = None
+    max_files: Optional[int] = None
+    max_size_mb: Optional[int] = None
+
+
 @dataclass()
 class FeaturesSettings(DataClassJsonMixin):
     prompt_playground: bool = True
-    multi_modal: bool = True
+    multi_modal: Optional[MultiModalFeature] = None
     latex: bool = False
     unsafe_allow_html: bool = False
     speech_to_text: Optional[SpeechToTextFeature] = None
@@ -204,6 +221,7 @@ class UISettings(DataClassJsonMixin):
     custom_css: Optional[str] = None
     custom_js: Optional[str] = None
     custom_font: Optional[str] = None
+    custom_build: Optional[str] = None
 
 
 @dataclass()
