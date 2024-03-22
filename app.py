@@ -1,17 +1,50 @@
-import chainlit as cl
-from langserve.client import RemoteRunnable
-from typing import Dict, Optional, Any
 import logging
-import aiohttp
+import os
+import sys
+from typing import Any, Dict, Optional
+
+from dotenv import load_dotenv
+from langserve.client import RemoteRunnable
+
+import chainlit as cl
+
+print(sys.executable)
+print(sys.path)
+
+
+from memgpt.client.admin import Admin as AdminRESTClient
 
 # Import the database management functions from db_manager module
-from ella_dbo.db_manager import create_connection, create_table, upsert_user, get_memgpt_user_id, get_memgpt_user_id_and_api_key
+from ella_dbo.db_manager import (
+    create_connection,
+    create_table,
+    get_memgpt_user_id,
+    get_memgpt_user_id_and_api_key,
+    upsert_user,
+)
+from ella_memgpt.extendedRESTclient import ExtendedRESTClient
 from ella_memgpt.memgpt_api import MemGPTAPI
+
+# Load environment variables from .env file
+load_dotenv()
+base_url = os.getenv("MEMGPT_API_URL", "default_base_url_if_not_set")
+master_api_key = os.getenv("MEMGPT_SERVER_PASS", "default_api_key_if_not_set")
+
+# Define default values
+DEFAULT_USER_ID = "default_user_id"
+DEFAULT_API_KEY = "default_api_key"
+DEFAULT_AGENT_CONFIG = {
+    "name": "DefaultAgent",
+    "preset": "memgpt_chat",
+    "human": "cs_phd",
+    "persona": "default_pa",
+}
 
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+
 
 @cl.oauth_callback
 def oauth_callback(
@@ -23,29 +56,48 @@ def oauth_callback(
     auth0_user_id = raw_user_data.get("sub", "Unknown ID")
     user_email = raw_user_data.get("email", None)
     user_name = raw_user_data.get("name", None)
-    user_roles = raw_user_data.get("https://ella-ai/auth/roles", ["none"])  # Assign 'none' as a default role
+    user_roles = raw_user_data.get(
+        "https://ella-ai/auth/roles", ["none"]
+    )  # Assign 'none' as a default role
 
-    custom_user = cl.User(identifier=user_name, metadata={
-        "auth0_user_id": auth0_user_id,
-        "email": user_email,
-        "name": user_name,
-        "roles": user_roles
-    })
+    custom_user = cl.User(
+        identifier=user_name,
+        metadata={
+            "auth0_user_id": auth0_user_id,
+            "email": user_email,
+            "name": user_name,
+            "roles": user_roles,
+        },
+    )
 
     conn = create_connection()
     create_table(conn)
     roles_str = ", ".join(user_roles)
-    upsert_user(conn, auth0_user_id=auth0_user_id, roles=roles_str, email=user_email, name=user_name)
+    upsert_user(
+        conn,
+        auth0_user_id=auth0_user_id,
+        roles=roles_str,
+        email=user_email,
+        name=user_name,
+    )
     conn.close()
 
     return custom_user
+
+
+# @cl.display_dashboard
+# async def display_dashboard():
+#     print(
+#         '*** DASHBOARD ***'
+#     )
+
 
 # *** 0Auth version ***
 @cl.on_chat_start
 async def on_chat_start():
     # Retrieve the cl.User object, assuming it's stored in the session or accessible via a similar mechanism
     app_user = cl.user_session.get("user")
-    
+
     # Access user details from the metadata attribute of the cl.User object
     auth0_user_id = app_user.metadata.get("auth0_user_id", "Unknown ID")
     user_email = app_user.metadata.get("email", "Unknown Email")
@@ -53,85 +105,114 @@ async def on_chat_start():
     user_roles = app_user.metadata.get("roles", ["user"])
 
     # For simplicity, checking if 'admin' is in user_roles
-    if 'admin' in user_roles:
+    if "admin" in user_roles:
         # Logic to display the dashboard for admins
         # Assuming there's a method or logic to render/display the dashboard
+        print("ADMIN USER ****")
         await cl.display_dashboard()  # Placeholder for actual dashboard display method
+
         return  # Prevent further execution to avoid going to the chat automatically
-        
-    #Get MemGPT user_id and api_key
+
+    # Get MemGPT user_id and api_key
     conn = create_connection()
-    #memgpt_user_id = get_memgpt_user_id(conn, auth0_user_id)
-    memgpt_user_id, memgpt_user_api_key = get_memgpt_user_id_and_api_key(conn, auth0_user_id)  # Adjust function call accordingly
-    
-    api = MemGPTAPI()
+    # memgpt_user_id = get_memgpt_user_id(conn, auth0_user_id)
+    memgpt_user_id, memgpt_user_api_key = get_memgpt_user_id_and_api_key(
+        conn, auth0_user_id
+    )  # Adjust function call accordingly
+
+    api = MemGPTAPI()  # custom class
+    admin_api = AdminRESTClient(base_url, master_api_key)  # extended class
 
     if not memgpt_user_id:
-        memgpt_user = api.create_user()  # Adjust based on actual API response structure
-        memgpt_user_id = memgpt_user.get("user_id")
-        memgpt_user_api_key = memgpt_user.get("api_key")
-        upsert_user(conn, auth0_user_id, memgpt_user_id=memgpt_user_id, memgpt_user_api_key=memgpt_user_api_key)
+        print("No memgpt user found, creating new one.")
+        # Directly unpack the tuple returned by create_user
+        memgpt_user_id, memgpt_user_api_key = admin_api.create_user()
+        print(f"New userid and key: {memgpt_user_id}, {memgpt_user_api_key}")
+        # Proceed with storing the new user details in the database
+        upsert_user(
+            conn,
+            auth0_user_id,
+            memgpt_user_id=memgpt_user_id,
+            memgpt_user_api_key=memgpt_user_api_key,
+        )
     elif not memgpt_user_api_key:
-        # If there is no API key, generate a new one
-        memgpt_user_api_key = api.create_user_api_key(memgpt_user_id)
-        # Update the user record to include the new API key
+        print("No key found, creating new API key for user")
+        response = admin_api.create_user_api_key(memgpt_user_id)
+        memgpt_user_api_key = response[
+            "api_key"
+        ]  # Directly accessing the 'api_key' from the response dictionary
+        print(f"New key: {memgpt_user_api_key}")
         upsert_user(conn, auth0_user_id, memgpt_user_api_key=memgpt_user_api_key)
-    conn.close()
 
     # Store MemGPT user ID and API key in the session
     cl.user_session.set("memgpt_user_id", memgpt_user_id)
     cl.user_session.set("memgpt_user_api_key", memgpt_user_api_key)
 
     # Use the get_agents function to fetch the list of agents
-    agents = api.get_agents(memgpt_user_api_key)
+    user_api = ExtendedRESTClient(base_url, memgpt_user_api_key)
+
+    # agents = api.get_agents(memgpt_user_api_key)
+    agents = user_api.list_agents()
+    print(f"{memgpt_user_id} AGENTS: {agents}")
 
     # Assuming this is part of the on_chat_start function
     if not agents or agents.get("num_agents", 0) == 0:
         # No agents found, creating new default agent
         config = {
-            "name": "Default Agent",
+            "name": "Anna",
             "preset": "memgpt_chat",
             "human": "cs_phd",
-            "persona": "sam_pov"
+            "persona": "anna_pa",
         }
+
         # Call to create a new agent with the specified config
-        api.create_agent(user_api_key=memgpt_user_api_key, config=config)
+        # api.create_agent(user_api_key=memgpt_user_api_key, config=config)
+        user_api.create_agent(config)
+
         # Re-fetch the agents after creating a new one to include it in the list
-        agents = api.get_agents(memgpt_user_api_key)
+        # agents = api.get_agents(memgpt_user_api_key)
+        agents = user_api.list_agents()
 
     # Now, regardless of whether agents were initially found or a new one was created,
     # you have an up-to-date list of agents for the display logic.
     if agents and agents.get("num_agents") > 0:
         agent_list = agents.get("agents", [])
-        display_message = "Your Agents:\n" + "\n".join([f"- {agent['name']}" for agent in agent_list])
-        selected_agent_id = agent_list[0].get('id')
-        cl.user_session.set("selected_agent_id", selected_agent_id)  # Store the selected agent ID in the session
+        display_message = "Your Agents:\n" + "\n".join(
+            [f"- {agent['name']}" for agent in agent_list]
+        )
+        selected_agent_id = agent_list[0].get("id")
+        cl.user_session.set(
+            "selected_agent_id", selected_agent_id
+        )  # Store the selected agent ID in the session
     else:
         display_message = "No agents available."
-
 
     # Construct and send a personalized message using the user's details
     custom_message = f"Hello {user_name} ({auth0_user_id}), your email is {user_email}, and your roles are: {user_roles}. Your MemGPT id is {memgpt_user_id} and your memgpt api key is {memgpt_user_api_key}. {display_message}"
     await cl.Message(custom_message).send()
 
+
 @cl.on_message
 async def on_message(message: cl.Message):
     user_api_key = cl.user_session.get("memgpt_user_api_key")
     agent_id = cl.user_session.get("selected_agent_id")
-    memgpt_api = MemGPTAPI()
+    # memgpt_api = MemGPTAPI()
+    user_api = ExtendedRESTClient(base_url, user_api_key)
 
     msg = cl.Message(content="")
     await msg.send()
 
     # Now correctly using async for with an asynchronous iterable
-    async for part in memgpt_api.send_message_to_agent_streamed(user_api_key, agent_id, message.content):
-        if 'assistant_message' in part:
-            message = part['assistant_message']
+    # async for part in memgpt_api.send_message_to_agent_streamed(user_api_key, agent_id, message.content):
+    async for part in user_api.send_message_to_agent_streamed(
+        agent_id, message.content
+    ):
+        if "assistant_message" in part:
+            message = part["assistant_message"]
             # Logic to display the message in the chatbot app
             await msg.stream_token(message)  # Example method to stream response to UI
 
     await msg.update()
-
 
 
 # @cl.on_message

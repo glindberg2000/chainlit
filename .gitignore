@@ -60,3 +60,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+*.code-workspace
+*.bak
+tree.txt
