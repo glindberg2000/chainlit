@@ -1,13 +1,26 @@
 import logging
+
+# Configure the root logger to log debug information
+logging.basicConfig(level=logging.INFO)
 import os
 from typing import Any, Dict, Optional
 
+from chainlit.server import app
 from dotenv import load_dotenv
+from fastapi import HTTPException, Request
+from fastapi.responses import HTMLResponse
 from memgpt.client.admin import Admin as AdminRESTClient
 
 import chainlit as cl
 from ella_memgpt.extendedRESTclient import ExtendedRESTClient
 from ella_memgpt.memgpt_api import MemGPTAPI
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -27,9 +40,135 @@ DEFAULT_AGENT_CONFIG = {
 }
 CHATBOT_NAME = "Ella"
 
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+
+@app.get("/hello")
+def hello(request: Request):
+    print(request.headers)
+    return HTMLResponse("Hello World")
+
+
+@app.get("/test-page", response_class=HTMLResponse)
+async def test_page(request: Request):
+    headers = request.headers
+    cookies = request.cookies
+
+    headers_list = "<br>".join([f"{key}: {value}" for key, value in headers.items()])
+    cookies_list = "<br>".join([f"{key}: {value}" for key, value in cookies.items()])
+
+    html_content = f"""
+    <html>
+        <head>
+            <title>Test Page</title>
+        </head>
+        <body>
+            <h2>Headers</h2>
+            <p>{headers_list}</p>
+            <h2>Cookies</h2>
+            <p>{cookies_list}</p>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+
+@app.get("/protected-page", response_class=HTMLResponse)
+def protected_page():
+    print("trying protected page....")
+    try:
+        # Attempt to retrieve the Chainlit user session
+        app_user = user_session.get("user")
+        # app_user = None
+
+        # Print the user session data to the console for debugging
+        logger.error(f"User session data: {app_user}")
+        print(f"User session data: {app_user}")
+
+        if app_user and "user" in app_user.metadata.get("roles", []):
+            # If the user is authenticated and authorized, return a simple HTML page
+            return HTMLResponse(
+                content=f"""
+            <html>
+                <head>
+                    <title>Protected Page</title>
+                </head>
+                <body>
+                    <h1>Welcome, {app_user.metadata['name']}</h1>
+                    <p>This is a protected page.</p>
+                </body>
+            </html>
+            """
+            )
+        else:
+            # User not authorized to access this page
+            logger.info("Access denied: User not authorized or session missing.")
+            return HTMLResponse(
+                content="""
+            <html>
+                <head>
+                    <title>Access Denied</title>
+                </head>
+                <body>
+                    <h1>Access Denied</h1>
+                    <p>You must be a valid user to view this page.</p>
+                </body>
+            </html>
+            """,
+                status_code=403,
+            )
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"Authentication error: {e}")
+        raise HTTPException(
+            status_code=401, detail="Authentication error. Please try again."
+        )
+
+
+from datetime import datetime, timedelta
+from typing import Dict
+
+import jwt
+
+# Your secret key for signing the JWT - keep it secure and do not expose it
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+
+
+def generate_jwt_for_user(user_details: Dict[str, any]) -> str:
+    """
+    Generates a JWT for an authenticated user with the provided user details.
+
+    :param user_details: A dictionary containing details about the user.
+    :return: A JWT as a string.
+    """
+    # Define the token expiration time (e.g., 24 hours from now)
+    expiration_time = datetime.utcnow() + timedelta(hours=24)
+
+    # Define your JWT payload
+    payload = {"user_details": user_details, "exp": expiration_time}  # Expiration time
+
+    # Encode the JWT
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return token
+
+
+import jwt
+from chainlit.user import User
+from chainlit.user_session import user_session
+
+
+def generate_jwt(user: User):
+    jwt_secret = SECRET_KEY
+    # Additional claims based on the user's profile or permissions
+    claims = {
+        "sub": user.identifier,
+        "name": user.metadata.get("name"),
+        "roles": user.metadata.get("roles"),
+    }
+    token = jwt.encode(claims, jwt_secret, algorithm="HS256")
+    # Store the token in the user's session for later validation
+    user_session.set("jwt_token", token)
+    print("token being set: ", token)
+    return token
 
 
 @cl.oauth_callback
@@ -55,6 +194,7 @@ def oauth_callback(
             "roles": user_roles,
         },
     )
+    # user_session.set(identifier=user_name)
 
     return custom_user
 
@@ -95,6 +235,16 @@ def guardian_agent_analysis(message_content):
     return None
 
 
+# Assuming the guardian_agent_analysis function returns a string (the note) or None
+def guardian_agent_analysis2(message_content):
+    print("Guardian Agent Analysis called.")  # Debugging statement
+    if "tired" in message_content.lower():
+        note = "Note from staff: Remind user to get some exercise and fresh air."
+        print(f"Guardian note generated: {note}")  # Debugging statement
+        return note
+    return None
+
+
 @cl.on_message
 async def on_message(message: cl.Message):
     user_api_key = DEFAULT_API_KEY
@@ -103,7 +253,7 @@ async def on_message(message: cl.Message):
 
     print(f"Received message: {message.content}")  # Debugging statement
     # Call the guardian agent function to analyze the message and potentially add notes
-    guardian_note = guardian_agent_analysis(message.content)
+    guardian_note = guardian_agent_analysis2(message.content)
 
     # Prepare the message for MemGPT, appending the guardian's note if it exists
     message_for_memgpt = message.content
