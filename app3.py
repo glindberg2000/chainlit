@@ -3,12 +3,13 @@ import logging
 # Configure the root logger to log debug information
 logging.basicConfig(level=logging.INFO)
 import os
+import time
 from typing import Any, Dict, Optional
 
 from chainlit.server import app
 from dotenv import load_dotenv
 from fastapi import HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from memgpt.client.admin import Admin as AdminRESTClient
 
 import chainlit as cl
@@ -69,6 +70,91 @@ async def test_page(request: Request):
     </html>
     """
     return HTMLResponse(content=html_content)
+
+
+@app.get("/new-test-page")
+async def new_test_page():
+    return FileResponse("public/test_page.html")
+
+
+@app.get("/voice-chat")
+async def new_test_page():
+    return RedirectResponse(
+        url="https://vapi.ai/?demo=true&shareKey=c87ea74e-bebf-4196-aebb-fbd77d5f28c0&assistantId=7d444afe-1c8b-4708-8f45-5b6592e60b47"
+    )
+
+
+@app.post("/api/dummy-model/chat/completions")
+async def custom_model(request: Request):
+    data = await request.json()
+    user_message = data.get("messages", [{}])[-1].get("content", "")
+
+    # Dummy response mimicking the structured response from your custom AI model
+    response = {
+        "id": "customcmpl-0000XxXxx0XXxXx0x0X0XxX0x0X0000",
+        "object": "chat.completion",
+        "created": 1712373788,
+        "model": "my-custom-model-0001",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": f"Received your message: {user_message}. This is a dummy response.",
+                },
+                "logprobs": None,
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": len(user_message.split()),
+            "completion_tokens": 36,
+            "total_tokens": 60,
+        },
+    }
+
+    return JSONResponse(content=response)
+
+
+# Assuming handle_message_from_vapi is properly imported and available
+# from your_message_handling_module import handle_message_from_vapi
+
+
+@app.post("/api/custom-model")
+async def custom_model(request: Request):
+    data = await request.json()
+    user_message = data.get("messages", [{}])[-1].get("content", "")
+
+    # Call the function to handle the message and get memGPT's response
+    assistant_message = await handle_message_from_vapi(user_message)
+
+    # Construct a response in the expected format
+    response = {
+        "id": "customcmpl-0000XxXxx0XXxXx0x0X0XxX0x0X0000",
+        "object": "chat.completion",
+        "created": int(time.time()),  # Use current time for the 'created' field
+        "model": "my-custom-model-0001",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": assistant_message,  # Use the actual response from memGPT
+                },
+                "logprobs": None,
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": len(user_message.split()),
+            "completion_tokens": len(
+                assistant_message.split()
+            ),  # Adjust based on actual response length
+            "total_tokens": len(user_message.split()) + len(assistant_message.split()),
+        },
+    }
+
+    return JSONResponse(content=response)
 
 
 @app.get("/protected-page", response_class=HTMLResponse)
@@ -243,6 +329,38 @@ def guardian_agent_analysis2(message_content):
         print(f"Guardian note generated: {note}")  # Debugging statement
         return note
     return None
+
+
+async def handle_message_from_vapi(message_content: str):
+    user_api_key = DEFAULT_API_KEY
+    agent_id = DEFAULT_AGENT_ID
+    user_api = ExtendedRESTClient(base_url, user_api_key)
+
+    print(f"Received message: {message_content}")  # Debugging statement
+
+    # If there's any preprocessing needed for the message, do it here
+    # For the sake of simplicity, we'll assume the message is ready to go
+    message_for_memgpt = message_content
+
+    # Placeholder for the aggregated assistant's message
+    assistant_message = ""
+
+    # Streamed communication with memGPT
+    async for part in user_api.send_message_to_agent_streamed(
+        agent_id, message_for_memgpt
+    ):
+        # Handle the different parts of the response
+        # For simplicity, we'll focus on appending the assistant messages
+        if "assistant_message" in part:
+            assistant_message += part["assistant_message"]
+
+    # Return or process the final assistant message
+    print(f"Assistant's Response: {assistant_message}")
+    return assistant_message
+
+
+# Example call to the function
+# You would replace this with the actual message receiving mechanism from VAPI
 
 
 @cl.on_message
