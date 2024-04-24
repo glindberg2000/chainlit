@@ -196,10 +196,9 @@ class LlamaIndexCallbackHandler(TokenCountingHandler):
             self.context.loop.create_task(step.update())
 
         else:
-            step.output = payload.get
+            step.output = payload
             self.context.loop.create_task(step.update())
-            return
-
+ 
         self.steps.pop(event_id, None)
 
     def _noop(self, *args, **kwargs):

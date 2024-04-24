@@ -8,6 +8,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Nothing unreleased!
 
+## [1.0.505] - 2024-04-23
+
+### Added
+
+- The user's browser language configuration is available in `cl.user_session.get("languages")`
+- Allow html in text elements - @jdb78
+- Allow for setting a ChatProfile default - @kevinwmerritt
+
+### Changed
+
+- The thread history refreshes right after a new thread is created.
+- The thread auto-tagging feature is now opt-in using `auto_tag_thread` in the config.toml file
+
+### Fixed
+
+- Fixed incorrect step ancestor in the OpenAI instrumentation
+- Enabled having a `storage_provider` set to `None` in SQLAlchemyDataLayer - @mohamedalani
+- Correctly serialize `generation` in SQLAlchemyDataLayer - @mohamedalani
+
+## [1.0.504] - 2024-04-16
+
+### Changed
+
+- Chainlit apps should function correctly even if the data layer is down
+
+## [1.0.503] - 2024-04-15
+
+### Added
+
+- Enable persisting threads using a Custom Data Layer (through SQLAlchemy) - @hayescode
+
+### Changed
+
+- React-client: Expose `sessionId` in `useChatSession`
+- Add chat profile as thread tag metadata
+
+### Fixed
+
+- Add quotes around the chainlit create-secret CLI output to avoid any issues with special characters
+
 ## [1.0.502] - 2024-04-08
 
 ### Added
